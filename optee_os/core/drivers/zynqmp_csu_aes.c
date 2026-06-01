@@ -214,9 +214,9 @@ static TEE_Result aes_prepare_op(enum aes_op op, enum zynqmp_csu_key key)
 	if (!aes || !csu)
 		return TEE_ERROR_GENERIC;
 
-	/* Connect DMA0 in/out to AES */
+	/* Connect DMA in/out to AES */
 	io_write32(csu + ZYNQMP_CSU_SSS_CFG_OFFSET,
-		   ZYNQMP_CSU_SSS_DMA0_STREAM_TO_AES);
+		   ZYNQMP_CSU_SSS_DMA_STREAM_TO_AES_TO_DMA);
 
 	/* Reset the AES */
 	io_write32(aes + AES_RESET_OFFSET, AES_RESET_SET);

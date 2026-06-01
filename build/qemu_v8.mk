@@ -38,17 +38,7 @@ DEBUG ?= 1
 UBOOT ?= n
 
 # Option to build with GICV3 enabled
-GICV3 ?= y
-
-# Option to configure FF-A and SPM:
-# n:	disabled
-# 3:	not supported, SPMC and SPMD at EL3 (in TF-A)
-# 2:	not supported, SPMC at S-EL2 (in Hafnium), SPMD at EL3 (in TF-A)
-# 1:	SPMC at S-EL1 (in OP-TEE), SPMD at EL3 (in TF-A)
-SPMC_AT_EL ?= n
-ifneq ($(filter-out n 1,$(SPMC_AT_EL)),)
-$(error Unsupported SPMC_AT_EL value $(SPMC_AT_EL))
-endif
+GICV3 ?= n
 
 ################################################################################
 # Paths to git projects and various binaries
@@ -157,14 +147,11 @@ TF_A_FLAGS ?= \
 	BL33=$(BL33_BIN) \
 	PLAT=qemu \
 	QEMU_USE_GIC_DRIVER=$(TFA_GIC_DRIVER) \
+	ARM_TSP_RAM_LOCATION=tdram \
 	BL32_RAM_LOCATION=tdram \
+	SPD=opteed \
 	DEBUG=$(TF_A_DEBUG) \
 	LOG_LEVEL=$(TF_A_LOGLVL)
-
-TF_A_FLAGS_SPMC_AT_EL_n  = SPD=opteed
-TF_A_FLAGS_SPMC_AT_EL_1  = SPD=spmd CTX_INCLUDE_EL2_REGS=0 SPMD_SPM_AT_SEL2=0
-TF_A_FLAGS_SPMC_AT_EL_1 += SPMC_OPTEE=1
-TF_A_FLAGS += $(TF_A_FLAGS_SPMC_AT_EL_$(SPMC_AT_EL))
 
 ifeq ($(TF_A_TRUSTED_BOARD_BOOT),y)
 TF_A_FLAGS += \
@@ -292,14 +279,9 @@ linux-cleaner: linux-cleaner-common
 # OP-TEE
 ################################################################################
 OPTEE_OS_COMMON_FLAGS += DEBUG=$(DEBUG) CFG_ARM_GICV3=$(GICV3)
-OPTEE_OS_COMMON_FLAGS_SPMC_AT_EL_1 = CFG_CORE_SEL1_SPMC=y
-
 ifeq ($(XEN_BOOT),y)
 OPTEE_OS_COMMON_FLAGS += CFG_VIRTUALIZATION=y
 endif
-
-OPTEE_OS_COMMON_FLAGS += $(OPTEE_OS_COMMON_FLAGS_SPMC_AT_EL_$(SPMC_AT_EL))
-
 optee-os: optee-os-common
 
 optee-os-clean: optee-os-clean-common
@@ -387,14 +369,12 @@ run: all
 
 
 ifeq ($(XEN_BOOT),y)
-QEMU_CPU	?= cortex-a57
 QEMU_MEM 	?= 2048
 QEMU_SMP	?= 4
 QEMU_VIRT	= true
 QEMU_XEN	?= -drive if=none,file=$(XEN_EXT4),format=raw,id=hd1 \
 		   -device virtio-blk-device,drive=hd1
 else
-QEMU_CPU	?= max,sve=off
 QEMU_SMP 	?= 2
 QEMU_MEM 	?= 1057
 QEMU_VIRT	= false
@@ -413,7 +393,7 @@ run-only:
 		-serial tcp:localhost:54320 -serial tcp:localhost:54321 \
 		-smp $(QEMU_SMP) \
 		-s -S -machine virt,secure=on,gic-version=$(QEMU_GIC_VERSION),virtualization=$(QEMU_VIRT) \
-		-cpu $(QEMU_CPU) \
+		-cpu cortex-a57 \
 		-d unimp -semihosting-config enable=on,target=native \
 		-m $(QEMU_MEM) \
 		-bios bl1.bin		\
@@ -430,9 +410,6 @@ endif
 ifneq ($(TIMEOUT),)
 check-args := --timeout $(TIMEOUT)
 endif
-ifneq ($(CHECK_TESTS),)
-check-args += --tests $(CHECK_TESTS)
-endif
 
 check: $(CHECK_DEPS)
 	ln -sf $(ROOT)/out-br/images/rootfs.cpio.gz $(BINARIES_PATH)/
@@ -441,7 +418,6 @@ check: $(CHECK_DEPS)
 		export QEMU_SMP=$(QEMU_SMP) && \
 		export QEMU_GIC=$(QEMU_GIC_VERSION) && \
 		export QEMU_MEM=$(QEMU_MEM) && \
-		export QEMU_CPU=$(QEMU_CPU) && \
 		export XEN_BOOT=$(XEN_BOOT) && \
 		expect $(ROOT)/build/qemu-check.exp -- $(check-args) || \
 		(if [ "$(DUMP_LOGS_ON_ERROR)" ]; then \

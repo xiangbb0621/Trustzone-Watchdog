@@ -48,6 +48,8 @@ CFG_SHMEM_SIZE   ?= 0x10000000
 
 CFG_WITH_STATS ?= y
 CFG_CRYPTO_WITH_CE ?= y
+CFG_NUM_THREADS ?= 2
+CFG_PLBS_BUF_SIZE	?= 30
 
 CFG_ZYNQMP_PM ?= $(CFG_ARM64_core)
 
@@ -65,6 +67,12 @@ $(call force,CFG_ZYNQMP_CSUDMA,y,Mandated by CFG_ZYNQMP_CSU_AES)
 $(call force,CFG_DT,y,Mandated by CFG_ZYNQMP_CSU_AES)
 endif
 
-ifneq (,$(filter y, $(CFG_ZYNQMP_CSU_PUF) $(CFG_ZYNQMP_CSUDMA) $(CFG_ZYNQMP_CSU_AES)))
+ifeq ($(CFG_ZYNQMP_CSU_PCAP),y)
+$(call force,CFG_ZYNQMP_CSUDMA,y,Mandated by CFG_ZYNQMP_CSU_PCAP)
+CFG_NUM_THREADS := $(CFG_NUM_THREADS) + $(CFG_PLBS_BUF_SIZE) / 2
+# $(call force,CFG_DT,y,Mandated by CFG_ZYNQMP_CSU_PCAP)
+endif
+
+ifneq (,$(filter y, $(CFG_ZYNQMP_CSU_PUF) $(CFG_ZYNQMP_CSUDMA) $(CFG_ZYNQMP_CSU_AES) $(CFG_ZYNQMP_CSU_PCAP)))
 $(call force,CFG_ZYNQMP_CSU,y,Mandated by CFG_ZYNQMP_CSU* clients)
 endif

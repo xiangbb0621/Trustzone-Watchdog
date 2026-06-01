@@ -25,7 +25,7 @@ include common.mk
 # Targets
 ################################################################################
 
-all: tfa optee-os u-boot linux dtbo buildroot
+all: tfa optee-os u-boot linux dtbo dtb-zcu102 buildroot
 clean: tfa-clean optee-os-clean u-boot-clean linux-clean dtbo-clean buildroot-clean
 
 include toolchain.mk
@@ -47,6 +47,11 @@ tfa-clean:
 ################################################################################
 # OP-TEE
 #################################################################################
+OPTEE_OS_COMMON_FLAGS += CFG_ARM64_core=y
+OPTEE_OS_COMMON_FLAGS += CFG_ZYNQMP_CSU_SECURE=y
+OPTEE_OS_COMMON_FLAGS += CFG_ZYNQMP_CSU_PCAP=y
+CFG_TEE_CORE_LOG_LEVEL := 1
+# CFG_TEE_CORE_LOG_LEVEL := 3
 
 optee-os: optee-os-common
 	${OPTEE_OS_PATH}/scripts/gen_tee_bin.py --input ${OPTEE_OS_PATH}/out/arm/core/tee.elf --out_tee_raw_bin ${OPTEE_OS_PATH}/out/arm/core/tee_raw.bin
@@ -77,6 +82,22 @@ dtbo: linux
 
 dtbo-clean:
 	rm -f zynqmp/zynqmp-optee.dtbo
+
+dtb-zcu102: linux
+# 1. Import the device tree of PL(if needed):
+# 		You need to import .xsa with Vitis first to generate the device tree.
+# 		Put 'pcw.dtsi' and 'pl.dtsi' in zynqmp/bsp/.
+# 2. Customize system-user.dtsi (if needed).
+
+# Origin zcu102 ver1.0 DT 
+	gcc -I my_dts -E -nostdinc -undef -D__DTS__ -x assembler-with-cpp -I $(U-BOOT_PATH)/arch/arm/dts/include -o zynqmp/bsp/zcu102-rev1.0.dtsi $(U-BOOT_PATH)/arch/arm/dts/zynqmp-zcu102-rev1.0.dts
+# merge zcu102 and PL DT
+	gcc -I my_dts -E -nostdinc -undef -D__DTS__ -x assembler-with-cpp -I zynqmp/bsp -o zynqmp/bsp/zcu102.dts zynqmp/bsp/system-top.dts
+# compile DTS to DTB
+	$(U-BOOT_PATH)/scripts/dtc/dtc -I dts -O dtb -o zynqmp/bsp/zcu102.dtb zynqmp/bsp/zcu102.dts
+
+dtb-zcu102-clean:
+	rm -f zynqmp/bsp/zcu102*.dt*
 
 ################################################################################
 # Linux kernel
@@ -112,6 +133,16 @@ BR2_TARGET_ROOTFS_EXT2=y
 BR2_PACKAGE_BUSYBOX_WATCHDOG=y
 BR2_TARGET_GENERIC_GETTY_PORT=ttyPS0
 
+# change init to systemd
+# BR2_INIT_BUSYBOX=n
+# BR2_INIT_SYSTEMD=y
+# BR2_PACKAGE_SYSTEMD=y
+# BR2_PACKAGE_SYSTEMD_ANALYZE=y
+
+# change init to sysV
+# BR2_INIT_BUSYBOX=n
+# BR2_INIT_SYSV=y
+
 # TF-A, Linux kernel, U-Boot and OP-TEE OS/Client/... are not built from their
 # related Buildroot native package.
 BR2_TARGET_ARM_TRUSTED_FIRMWARE=n
@@ -133,10 +164,10 @@ image-clean: bootimage-clean fitimage-clean
 ###############################################################################
 # Boot Image
 ###############################################################################
-FIRMWARE_TARBALL = $(subst zynqmp-,2021.1-,$(PLATFORM))-release.tar.xz
+FIRMWARE_TARBALL = $(subst zynqmp-,2021.2-,$(PLATFORM))-release.tar.xz
 
 bootimage: bootgen firmware tfa optee-os u-boot
-	$(BOOTGEN_PATH)/bootgen -arch zynqmp -image zynqmp/bootImage-${PLATFORM}.bif -w -o zynqmp/BOOT.bin
+	$(BOOTGEN_PATH)/bootgen -arch zynqmp -p xczu9eg -image zynqmp/bootImage-${PLATFORM}.bif -w -o zynqmp/BOOT.bin
 
 bootimage-clean: bootgen-clean firmware-clean tfa-clean optee-os-clean u-boot-clean
 	rm -f zynqmp/BOOT.bin
@@ -171,9 +202,11 @@ firmware-clean:
 # FIT Image
 ###############################################################################
 
-fitimage: linux dtbo buildroot
+fitimage: linux dtbo dtb-zcu102 buildroot
 	${U-BOOT_PATH}/tools/mkimage -f zynqmp/fitImage-${PLATFORM}.its zynqmp/${PLATFORM}.ub
+	${U-BOOT_PATH}/tools/mkimage -c none -A arm -T script -d zynqmp/boot.cmd.default zynqmp/boot.scr
 
-fitimage-clean: linux-clean dtbo-clean buildroot-clean
+fitimage-clean: linux-clean dtbo-clean dtb-zcu102-clean buildroot-clean
 	rm -f zynqmp/${PLATFORM}.ub
+	rm -f zynqmp/boot.scr
 

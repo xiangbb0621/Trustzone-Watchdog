@@ -63,6 +63,7 @@ register_phys_mem_pgdir(MEM_AREA_IO_SEC,
 			CORE_MMU_PGDIR_SIZE);
 #if defined(CFG_ZYNQMP_CSU)
 register_phys_mem_pgdir(MEM_AREA_IO_SEC, CSU_BASE, CSU_SIZE);
+register_phys_mem_pgdir(MEM_AREA_IO_SEC, CRL_APB_BASE, CRL_APB_SIZE);
 #endif
 
 #if CFG_DDR_SIZE > 0x80000000

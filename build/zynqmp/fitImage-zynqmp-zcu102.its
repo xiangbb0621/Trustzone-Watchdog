@@ -20,10 +20,11 @@
         };
         fdt-1 {
             description = "Flattened Device Tree blob";
-            data = /incbin/("../../u-boot-xlnx/arch/arm/dts/zynqmp-zcu102-rev1.0.dtb");
+            // data = /incbin/("../../u-boot-xlnx/arch/arm/dts/zynqmp-zcu102-rev1.0.dtb");
+            data = /incbin/("./bsp/zcu102.dtb");
             type = "flat_dt";
             arch = "arm64";
-            load = <0x10000000>;
+            load = <0x0E000000>;
             compression = "none";
             hash@1 {
                 algo = "sha1";
@@ -34,7 +35,7 @@
             data = /incbin/("zynqmp-optee.dtbo");
             type = "flat_dt";
             arch = "arm64";
-            load = <0x11000000>;
+            load = <0x0F000000>;
             compression = "none";
             hash@1 {
                 algo = "sha1";
@@ -46,7 +47,7 @@
             type = "ramdisk";
             arch = "arm64";
             os = "linux";
-            compression = "gzip";
+            compression = "none";
             hash@1 {
                 algo = "sha1";
             };
@@ -58,7 +59,7 @@
             description = "Boot Linux kernel with FDT blob + ramdisk";
             kernel = "kernel";
             fdt = "fdt-1", "fdt-2";
-	    ramdisk = "ramdisk";
+            ramdisk = "ramdisk";
             hash@1 {
                 algo = "sha1";
             };

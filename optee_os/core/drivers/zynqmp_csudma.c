@@ -20,23 +20,21 @@
 #define CSUDMA_I_STS_OFFSET		0x14
 #define CSUDMA_I_EN_OFFSET		0x18
 #define CSUDMA_I_DIS_OFFSET		0x1C
-#define CSUDMA_I_MASK_OFFSET		0x20
+#define CSUDMA_I_MASK_OFFSET	0x20
 #define CSUDMA_CTRL2_OFFSET		0x24
-#define CSUDMA_ADDR_MSB_OFFSET		0x28
+#define CSUDMA_ADDR_MSB_OFFSET	0x28
 
 #define CSUDMA_OFFSET_DIFF		0x0800
 
-#define CSUDMA_ADDR_MASK		GENMASK_32(31, 2)
-#define CSUDMA_ADDR_LSB_MASK		(BIT(0) | BIT(1))
+#define CSUDMA_ADDR_MASK			GENMASK_32(31, 2)
 #define CSUDMA_ADDR_MSB_MASK		GENMASK_32(16, 0)
 #define CSUDMA_ADDR_MSB_SHIFT		32
-#define CSUDMA_SIZE_SHIFT		2
-#define CSUDMA_STS_BUSY_MASK		BIT(0)
+#define CSUDMA_SIZE_SHIFT			2
+
 #define CSUDMA_CTRL_ENDIAN_MASK		BIT(23)
-#define CSUDMA_LAST_WORD_MASK		BIT(0)
 #define CSUDMA_IXR_DONE_MASK		BIT(1)
-#define CSUDMA_IXR_SRC_MASK		GENMASK_32(6, 0)
-#define CSUDMA_IXR_DST_MASK		GENMASK_32(7, 1)
+#define CSUDMA_IXR_SRC_MASK			GENMASK_32(6, 0)
+#define CSUDMA_IXR_DST_MASK			GENMASK_32(7, 1)
 
 #define CSUDMA_DONE_TIMEOUT_USEC	3000000
 
@@ -72,6 +70,9 @@ TEE_Result zynqmp_csudma_sync(enum zynqmp_csudma_channel channel)
 	while (!timeout_elapsed(tref)) {
 		status = io_read32(dma + CSUDMA_I_STS_OFFSET);
 		if ((status & CSUDMA_IXR_DONE_MASK) == CSUDMA_IXR_DONE_MASK) {
+			status = io_read32(dma + CSUDMA_CRC_OFFSET);
+			DMSG("CSUDMA FIFO CRC: %X", status);
+
 			csudma_clear_intr(channel, CSUDMA_IXR_DONE_MASK);
 			return TEE_SUCCESS;
 		}
@@ -80,7 +81,7 @@ TEE_Result zynqmp_csudma_sync(enum zynqmp_csudma_channel channel)
 	return TEE_ERROR_GENERIC;
 }
 
-TEE_Result zynqmp_csudma_prepare(void)
+TEE_Result zynqmp_csudma_prepare(enum zynqmp_csudma_channel channel)
 {
 	vaddr_t dma = core_mmu_get_va(CSUDMA_BASE, MEM_AREA_IO_SEC,
 				      CSUDMA_SIZE);
@@ -88,21 +89,28 @@ TEE_Result zynqmp_csudma_prepare(void)
 	if (!dma)
 		return TEE_ERROR_GENERIC;
 
-	io_setbits32(dma + CSUDMA_CTRL_OFFSET, CSUDMA_CTRL_ENDIAN_MASK);
-	dma = dma + CSUDMA_OFFSET_DIFF;
+	if (channel == ZYNQMP_CSUDMA_DST_CHANNEL)
+		dma = dma + CSUDMA_OFFSET_DIFF;
+	
 	io_setbits32(dma + CSUDMA_CTRL_OFFSET, CSUDMA_CTRL_ENDIAN_MASK);
 
 	return TEE_SUCCESS;
 }
 
-void zynqmp_csudma_unprepare(void)
+TEE_Result zynqmp_csudma_unprepare(enum zynqmp_csudma_channel channel)
 {
 	vaddr_t dma = core_mmu_get_va(CSUDMA_BASE, MEM_AREA_IO_SEC,
 				      CSUDMA_SIZE);
 
+	if (!dma)
+		return TEE_ERROR_GENERIC;
+
+	if (channel == ZYNQMP_CSUDMA_DST_CHANNEL)
+		dma = dma + CSUDMA_OFFSET_DIFF;
+
 	io_clrbits32(dma + CSUDMA_CTRL_OFFSET, CSUDMA_CTRL_ENDIAN_MASK);
-	dma = dma + CSUDMA_OFFSET_DIFF;
-	io_clrbits32(dma + CSUDMA_CTRL_OFFSET, CSUDMA_CTRL_ENDIAN_MASK);
+
+	return TEE_SUCCESS;
 }
 
 TEE_Result zynqmp_csudma_transfer(enum zynqmp_csudma_channel channel,
@@ -119,28 +127,37 @@ TEE_Result zynqmp_csudma_transfer(enum zynqmp_csudma_channel channel,
 	if (len % sizeof(uint32_t))
 		return TEE_ERROR_BAD_PARAMETERS;
 
+	DMSG("VA->PA: %p->%p", addr, phys);
+
 	if (!IS_ALIGNED(phys, ZYNQMP_CSUDMA_ALIGN)) {
 		EMSG("Invalid alignment");
 		return TEE_ERROR_BAD_PARAMETERS;
 	}
 
-	/* convert to 32 bit word transfers */
-	len = len / sizeof(uint32_t);
-
+	/* Cache coherence  */
 	if (channel == ZYNQMP_CSUDMA_DST_CHANNEL) {
 		dma = dma + CSUDMA_OFFSET_DIFF;
-		dcache_inv_range(addr, SHIFT_U64(len, CSUDMA_SIZE_SHIFT));
+		cache_op_inner(DCACHE_AREA_INVALIDATE, addr, len);
+		cache_op_outer(DCACHE_AREA_INVALIDATE, phys, len);
 	} else {
-		dcache_clean_range(addr, SHIFT_U64(len, CSUDMA_SIZE_SHIFT));
+		cache_op_inner(DCACHE_AREA_CLEAN, addr, len);
+		cache_op_outer(DCACHE_AREA_CLEAN, phys, len);
 	}
 
+	/* clear CRC */
+	io_write32(dma + CSUDMA_CRC_OFFSET, 0);
+	DMSG("CRC init value: %#x", 0);
+
+	/* ADDR */
 	addr_offset = phys & CSUDMA_ADDR_MASK;
 	io_write32(dma + CSUDMA_ADDR_OFFSET, addr_offset);
 
+	/* ADDR MSB*/
 	addr_offset = phys >> CSUDMA_ADDR_MSB_SHIFT;
 	io_write32(dma + CSUDMA_ADDR_MSB_OFFSET, addr_offset);
-	io_write32(dma + CSUDMA_SIZE_OFFSET,
-		   SHIFT_U32(len, CSUDMA_SIZE_SHIFT) | notify);
+
+	/* SIZE */
+	io_write32(dma + CSUDMA_SIZE_OFFSET, len | notify);
 
 	return TEE_SUCCESS;
 }

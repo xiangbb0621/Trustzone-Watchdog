@@ -1,0 +1,1 @@
+srcs-$(CFG_ZYNQMP_CSU_PCAP) += fpga_mgr.c

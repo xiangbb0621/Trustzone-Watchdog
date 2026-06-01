@@ -1,0 +1,6 @@
+all:
+{
+ [keysrc_encryption] kup_key
+ [encryption=aes,aeskeyfile=encrypt.nky, blocks=1999952;1999952;1999952;1999952;1999952;1999952;1999952;1999952;1999952;1999952;1999952] rp2rm2.bit
+}
+

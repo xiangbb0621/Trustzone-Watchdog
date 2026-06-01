@@ -11,7 +11,7 @@
 #include <tee_api_types.h>
 #include <types_ext.h>
 
-#define ZYNQMP_CSUDMA_ALIGN			64
+#define ZYNQMP_CSUDMA_ALIGN			8
 #define __aligned_csudma			__aligned(ZYNQMP_CSUDMA_ALIGN)
 
 #define ZYNQMP_CSUDMA_MIN_SIZE			16
@@ -25,7 +25,7 @@ enum zynqmp_csudma_channel {
 TEE_Result zynqmp_csudma_transfer(enum zynqmp_csudma_channel channel,
 				  void *address, size_t len, uint8_t notify);
 TEE_Result zynqmp_csudma_sync(enum zynqmp_csudma_channel channel);
-TEE_Result zynqmp_csudma_prepare(void);
-void zynqmp_csudma_unprepare(void);
+TEE_Result zynqmp_csudma_prepare(enum zynqmp_csudma_channel channel);
+TEE_Result zynqmp_csudma_unprepare(enum zynqmp_csudma_channel channel);
 
 #endif

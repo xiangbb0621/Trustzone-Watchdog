@@ -44,6 +44,8 @@ srcs-$(CFG_IMX_SC) += imx_mu.c imx_sc_api.c
 srcs-$(CFG_ZYNQMP_CSU_PUF) += zynqmp_csu_puf.c
 srcs-$(CFG_ZYNQMP_CSUDMA) += zynqmp_csudma.c
 srcs-$(CFG_ZYNQMP_CSU_AES) += zynqmp_csu_aes.c
+srcs-$(CFG_ZYNQMP_CSU_PCAP) += zynqmp_csu_pcap.c
+srcs-$(CFG_ZYNQMP_CSU_SECURE) += zynqmp_csu_secure.c
 srcs-$(CFG_ZYNQMP_PM) += zynqmp_pm.c
 srcs-$(CFG_ZYNQMP_HUK) += zynqmp_huk.c
 

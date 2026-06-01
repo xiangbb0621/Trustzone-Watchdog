@@ -108,15 +108,11 @@ QEMU_VIRTFS_MOUNTPOINT	?= /mnt/host
 ifeq ($(COMPILE_NS_USER),64)
 ifeq ($(UNAME_M),x86_64)
 MULTIARCH			:= aarch64-linux-gnu
-else ifeq ($(UNAME_M),aarch64)
-MULTIARCH			:= aarch64-linux
 else
 MULTIARCH			:= aarch64-linux
 endif
 else
 ifeq ($(UNAME_M),x86_64)
-MULTIARCH			:= arm-linux-gnueabihf
-else ifeq ($(UNAME_M),aarch64)
 MULTIARCH			:= arm-linux-gnueabihf
 else
 MULTIARCH			:= arm-linux
@@ -261,12 +257,6 @@ BUILDROOT_TOOLCHAIN=toolchain-aarch$(COMPILE_NS_USER)
 else
 BUILDROOT_TOOLCHAIN=toolchain-aarch$(COMPILE_NS_USER)-legacy
 endif
-else ifeq ($(UNAME_M),aarch64)
-ifeq ($(COMPILE_NS_USER),64)
-BUILDROOT_TOOLCHAIN=toolchain-aarch64-sdk
-else
-BUILDROOT_TOOLCHAIN=toolchain-aarch32
-endif
 else
 BUILDROOT_TOOLCHAIN=toolchain-aarch$(COMPILE_NS_USER)-sdk
 endif
@@ -291,7 +281,6 @@ ifeq ($(OPTEE_RUST_ENABLE),y)
 BR2_PACKAGE_OPTEE_RUST_EXAMPLES_EXT ?= y
 BR2_PACKAGE_OPTEE_RUST_EXAMPLES_EXT_CROSS_COMPILE ?= $(CROSS_COMPILE_S_USER)
 BR2_PACKAGE_OPTEE_RUST_EXAMPLES_EXT_SITE ?= $(OPTEE_RUST_PATH)
-BR2_PACKAGE_OPTEE_RUST_EXAMPLES_TC_PATH_ENV = $(PATH):$(ROOT)/toolchains/aarch64/bin:$(HOME)/.cargo/bin
 endif
 # The OPTEE_OS package builds nothing, it just installs files into the
 # root FS when applicable (for example: shared libraries)
@@ -314,9 +303,6 @@ endif
 
 # Embed opensc for pkcs11-tool
 BR2_PACKAGE_OPENSC ?= y
-
-# Embed keyutils for trusted-keys
-BR2_PACKAGE_KEYUTILS ?= y
 
 # All BR2_* variables from the makefile or the environment are appended to
 # ../out-br/extra.conf. All values are quoted "..." except y and n.
@@ -346,7 +332,7 @@ buildroot: optee-os optee-rust
 		$(DEFCONFIG_FTPM) \
 		--br-defconfig out-br/extra.conf \
 		--make-cmd $(MAKE))
-	@$(MAKE) -C ../out-br all
+	@$(OPTEE_RUST_SET_ENV) $(MAKE) -C ../out-br all
 
 .PHONY: buildroot-clean
 buildroot-clean:
@@ -514,8 +500,7 @@ OPTEE_OS_COMMON_FLAGS ?= \
 	CROSS_COMPILE_ta_arm32="$(CCACHE)$(AARCH32_CROSS_COMPILE)" \
 	CFG_TEE_CORE_LOG_LEVEL=$(CFG_TEE_CORE_LOG_LEVEL) \
 	DEBUG=$(DEBUG) \
-	CFG_TEE_BENCHMARK=$(CFG_TEE_BENCHMARK) \
-	CFG_IN_TREE_EARLY_TAS=trusted_keys/f04a0fe7-1f5d-4b9b-abf7-619b85b4ce8c
+	CFG_TEE_BENCHMARK=$(CFG_TEE_BENCHMARK)
 
 .PHONY: optee-os-common
 optee-os-common:
@@ -532,6 +517,7 @@ optee-os-clean-common:
 optee-rust:
 ifeq ($(OPTEE_RUST_ENABLE),y)
 	@(cd $(OPTEE_RUST_PATH) && ./setup.sh)
+OPTEE_RUST_SET_ENV = source ~/.cargo/env &&
 endif
 
 ################################################################################
