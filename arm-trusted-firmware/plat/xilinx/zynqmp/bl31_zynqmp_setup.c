@@ -18,6 +18,8 @@
 #include <plat_private.h>
 #include <zynqmp_def.h>
 
+void zynqmp_swdt_init(void);
+
 #if ZYNQMP_CONSOLE_IS(dcc)
 #include <drivers/arm/dcc.h>
 #endif
@@ -163,7 +165,24 @@ static uint64_t rdo_el3_interrupt_handler(uint32_t id, uint32_t flags,
 	uint32_t intr_id;
 	interrupt_type_handler_t handler;
 
+	/*
+	 * DEBUG beacons (Linux-readable via TTC2 scratch regs):
+	 *   0xFF130034 (MATCH_0_2) : dispatcher entry count
+	 *   0xFF130038 (MATCH_0_3) : interrupt id read from HPPIR
+	 * Remove once the FIQ path is confirmed.
+	 */
+	{
+		static uint32_t dbg_entry_cnt;
+		mmio_write_32(0xFF130034U, ++dbg_entry_cnt);
+	}
+
+	/* id passed by framework is INTR_ID_UNAVAILABLE; read HPPIR for real ID */
 	intr_id = plat_ic_get_pending_interrupt_id();
+	mmio_write_32(0xFF130038U, intr_id);
+
+	if (intr_id >= MAX_INTR_EL3)
+		return 0;
+
 	handler = type_el3_interrupt_table[intr_id];
 	if (handler != NULL)
 		handler(intr_id, flags, handle, cookie);
@@ -186,11 +205,18 @@ void bl31_plat_runtime_setup(void)
 	uint64_t flags = 0;
 	uint64_t rc;
 
+	/*
+	 * Register for both NS and Secure states so the heartbeat fires even
+	 * when OP-TEE is stuck (Layer-3 SWDT defence requirement).
+	 */
 	set_interrupt_rm_flag(flags, NON_SECURE);
+	set_interrupt_rm_flag(flags, SECURE);
 	rc = register_interrupt_type_handler(INTR_TYPE_EL3,
 					     rdo_el3_interrupt_handler, flags);
 	if (rc)
 		panic();
+	
+	zynqmp_swdt_init();
 #endif
 }
 

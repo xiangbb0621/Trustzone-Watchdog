@@ -1,0 +1,64 @@
+#!/bin/sh
+# layer3_test — 第三關（SWDT 終極救磚）一鍵展示
+#
+# 直接執行 `layer3_test`，會依序：
+#   1. 確認 TF-A↔PMU 心跳鏈正常運作
+#   2. 模擬 OP-TEE / TrustZone 掛掉（停掉 TTC2 → 心跳凍結）
+#   3. 觀察 PMU 偵測到心跳凍結、漏跳數累加
+#   4. PMU 判定 TrustZone 死亡 → 觸發全晶片冷重開（系統會自動重開機）
+#
+# 暫存器（LPD/TTC2/SWDT，Linux 可存取）:
+#   0xFF130048 心跳計數器（TF-A 每 2s 遞增）
+#   0xFF130040 PMU 最後看到的心跳值
+#   0xFF130044 PMU 連續漏跳數
+#   0xFF13000C TTC2 Counter0 Control（寫 0x1 = 停 timer = 模擬 OP-TEE 掛掉）
+
+HB=0xFF130048      # heartbeat counter (TF-A writes)
+SEEN=0xFF130040    # PMU last-seen heartbeat
+MISS=0xFF130044    # PMU consecutive missed count
+TTC2_CTRL=0xFF13000C
+
+rd() { devmem "$1"; }
+
+echo "=============================================="
+echo " 第三關 Layer-3 SWDT 終極救磚 — 自動展示"
+echo "=============================================="
+
+# ── 步驟 1：確認心跳正常 ──────────────────────────────
+echo ""
+echo "[1/4] 確認 TF-A↔PMU 心跳鏈..."
+h1=$(rd $HB)
+sleep 3
+h2=$(rd $HB)
+echo "      心跳 0xFF130048: $h1 -> $h2"
+if [ "$h1" = "$h2" ]; then
+    echo "      ✗ 心跳沒有遞增，系統可能已異常，中止展示。"
+    exit 1
+fi
+echo "      ✓ 心跳持續遞增 → TrustZone 存活，PMU 正常監看。"
+
+# ── 步驟 2：模擬 OP-TEE 掛掉 ──────────────────────────
+echo ""
+echo "[2/4] 模擬 OP-TEE / TrustZone 掛掉（停止心跳來源 TTC2）..."
+devmem $TTC2_CTRL w 0x1
+echo "      已停掉 TTC2。心跳此刻應凍結："
+a=$(rd $HB)
+sleep 3
+b=$(rd $HB)
+echo "      心跳 0xFF130048: $a -> $b （凍結）"
+
+# ── 步驟 3：觀察 PMU 偵測漏跳 ─────────────────────────
+echo ""
+echo "[3/4] 觀察 PMU 偵測心跳凍結（每 2s 漏跳數 +1，門檻 8 次）..."
+n=0
+while [ $n -lt 9 ]; do
+    echo "      t+$((n*2))s  PMU看到心跳=$(rd $SEEN)  漏跳數=$(rd $MISS)"
+    n=$((n+1))
+    sleep 2
+done
+
+# ── 步驟 4：等待冷重開 ────────────────────────────────
+echo ""
+echo "[4/4] 漏跳已達門檻 → PMU 判定 TrustZone 死亡 → 觸發全晶片冷重開。"
+echo "      系統即將自動重開機（PS+PL 全部重置）。"
+echo "      重開後請重新登入，本次展示完成。"

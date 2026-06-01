@@ -1759,7 +1759,7 @@
 # 13 "zynqmp/bsp/system-top.dts" 2
 / {
  chosen {
-  bootargs = "earlycon clk_ignore_unused";
+  bootargs = "earlycon clk_ignore_unused keep_bootcon";
 
   stdout-path = "serial0:115200n8";
  };

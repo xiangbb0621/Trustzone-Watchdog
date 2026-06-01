@@ -8,7 +8,7 @@ override PROGRAMMABLE_RESET_ADDRESS := 1
 PSCI_EXTENDED_STATE_ID := 1
 A53_DISABLE_NON_TEMPORAL_HINT := 0
 SEPARATE_CODE_AND_RODATA := 1
-ZYNQMP_WDT_RESTART := 0
+ZYNQMP_WDT_RESTART := 1
 ZYNQMP_WARM_RESTART := 0
 IPI_CRC_CHECK := 0
 override RESET_TO_BL31 := 1
@@ -111,7 +111,8 @@ BL31_SOURCES		+=	drivers/arm/cci/cci.c				\
 				plat/xilinx/zynqmp/pm_service/pm_api_pinctrl.c	\
 				plat/xilinx/zynqmp/pm_service/pm_api_ioctl.c	\
 				plat/xilinx/zynqmp/pm_service/pm_api_clock.c	\
-				plat/xilinx/zynqmp/pm_service/pm_client.c
+				plat/xilinx/zynqmp/pm_service/pm_client.c	\
+				plat/xilinx/zynqmp/zynqmp_swdt.c
 
 BL31_CPPFLAGS          +=      -fno-jump-tables
 

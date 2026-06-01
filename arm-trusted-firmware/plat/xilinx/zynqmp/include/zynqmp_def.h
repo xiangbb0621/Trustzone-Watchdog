@@ -124,6 +124,36 @@
 #define TTC3_INTR_ENABLE_1	(TTC3_BASE_ADDR + 0x60)
 #endif
 
+/* TTC2 Counter 0 – used for SWDT Layer-3 heartbeat (IRQ 74, Group 0/EL3) */
+#define IRQ_TTC2_0		74
+#define TTC2_BASE_ADDR		0xFF130000
+/* Counter 0 register offsets within TTC instance */
+#define TTC2_CLK_CNTRL_0	(TTC2_BASE_ADDR + 0x00)
+#define TTC2_CNT_CNTRL_0	(TTC2_BASE_ADDR + 0x0C)
+#define TTC2_INTERVAL_VAL_0	(TTC2_BASE_ADDR + 0x24)
+#define TTC2_ISR_0		(TTC2_BASE_ADDR + 0x54)
+#define TTC2_IER_0		(TTC2_BASE_ADDR + 0x60)
+
+/* CNT_CNTRL bits */
+#define TTC_CNTRL_DIS		(1U << 0)	/* 1 = counter disabled */
+#define TTC_CNTRL_INT_MODE	(1U << 1)	/* 1 = interval mode */
+#define TTC_CNTRL_RST		(1U << 4)	/* 1 = reset counter to 0, self-clearing */
+
+/* CLK_CNTRL bits */
+#define TTC_CLK_PS_EN		(1U << 0)	/* prescaler enable */
+#define TTC_CLK_PS_VAL_SHIFT	1U		/* prescaler value [4:1] -> divide by 2^(val+1) */
+
+/*
+ * LPD_LSBUS_CLK ≈ 100 MHz on ZCU102.
+ * PS_VAL=15 → divide by 2^16 = 65536 → ~1526 Hz
+ * 2 s interval: 1526 × 2 = 3052 ticks
+ */
+#define TTC2_CLK_PS_VAL		15U
+#define TTC2_INTERVAL_TICKS	3052U
+
+/* Interrupt priority for TTC2 EL3 handler (must be < 0x80, the NS threshold) */
+#define TTC2_IRQ_PRIORITY	0x40U
+
 #define ARM_IRQ_SEC_PHY_TIMER		29
 
 #define ARM_IRQ_SEC_SGI_0		8
