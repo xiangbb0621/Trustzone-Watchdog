@@ -2,10 +2,43 @@
 #include <trace.h>
 #include <kernel/pseudo_ta.h>
 #include <mm/core_memprot.h>
+#include <mm/core_mmu.h>
 
 #include <platform_config.h>
 #include <drivers/zynqmp_csu_pcap.h>
 #include <pta_zynqmp_fpga_mgr.h>
+
+/*
+ * DFX Decoupler 管理：在 PCAP 重燒 RP 前後，隔離/接通 RP 與靜態區之間的介面。
+ * 不隔離的話，RP 重配置中(~數十 ms)的垃圾 AXI 訊號會灌進共用的 smartconnect，
+ * 波及靜態區周邊（例如 TMR watchdog @0xA0100000）造成 AXI SError → kernel panic。
+ * 兩個 RP 的 decoupler s_axi_reg：0xA0020000、0xA0030000，bit0 = decouple。
+ */
+#define ZYNQMP_DFX_DECOUPLER_BASE	0xA0020000
+#define ZYNQMP_DFX_DECOUPLER_SIZE	0x20000		/* 涵蓋 0xA0020000 與 0xA0030000 */
+#define DFX_DECOUPLER_1_OFFSET		0x00000		/* -> 0xA0020000 */
+#define DFX_DECOUPLER_0_OFFSET		0x10000		/* -> 0xA0030000 */
+#define DFX_DECOUPLE			0x1U		/* 隔離 */
+#define DFX_COUPLE			0x0U		/* 接通 */
+
+register_phys_mem_pgdir(MEM_AREA_IO_SEC, ZYNQMP_DFX_DECOUPLER_BASE,
+			ZYNQMP_DFX_DECOUPLER_SIZE);
+
+/* decouple=DFX_DECOUPLE 隔離兩個 RP；=DFX_COUPLE 接通 */
+static void zynqmp_dfx_decouple(uint32_t decouple)
+{
+	vaddr_t base = (vaddr_t)core_mmu_get_va(ZYNQMP_DFX_DECOUPLER_BASE,
+						MEM_AREA_IO_SEC,
+						ZYNQMP_DFX_DECOUPLER_SIZE);
+
+	if (!base) {
+		EMSG("DFX decoupler MMIO map failed");
+		return;
+	}
+
+	io_write32(base + DFX_DECOUPLER_1_OFFSET, decouple);
+	io_write32(base + DFX_DECOUPLER_0_OFFSET, decouple);
+}
 
 static TEE_Result pta_zynqmp_fpga_write(uint32_t param_types,
 					TEE_Param params[TEE_NUM_PARAMS])
@@ -53,8 +86,14 @@ static TEE_Result pta_zynqmp_fpga_write(uint32_t param_types,
 	/* PCAP write */
 	// result = zynqmp_csu_pcap_write((void*)va, size);
 
-	/* Secure PCAP write */
+	/* Secure PCAP write
+	 * DFX：重燒前先 decouple 隔離兩個 RP，重燒後再接通。避免 RP 重配置期間的
+	 * 垃圾 AXI 訊號灌進共用 smartconnect、害靜態區周邊(TMR watchdog) AXI 掛掉。
+	 * decouple 改由 Secure World 統一掌控（取代先前 Linux 手動 devmem）。
+	 */
+	zynqmp_dfx_decouple(DFX_DECOUPLE);
 	result = zynqmp_csu_secure_pcap_write((void*)va, size);
+	zynqmp_dfx_decouple(DFX_COUPLE);
 	
 	if (result != TEE_SUCCESS) {
 		EMSG("PCAP write failed!");

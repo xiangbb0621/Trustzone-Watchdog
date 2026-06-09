@@ -1,0 +1,92 @@
+#!/bin/sh
+# tmr_wdt_test — 第一關（PL TMR Watchdog + Majority Voter）即時硬體展示 / 驗證
+#
+# 全自動跑：健康 → 任一隻單獨被餓死(三種都測，應被過濾) → 三隻全餓死(觸發第二關)。
+# 全程用 devmem 直接讀寫 PL 上的 watchdog，並『每秒把三隻計數器與狀態即時印出』，
+# 數值會當場變動，證明是真硬體在反應、不是寫死的輸出。
+#
+# AXI base 0xA0100000（PS M_AXI_HPM0_FPD）:
+#   CTRL 0xA0100000(bit0=EN)   RELOAD 0xA0100004   KICK 0xA0100008(bit0/1/2=餵 A/B/C)
+#   CNT_A/B/C 0xA0100010/14/18（目前計數值）
+#   STATUS 0xA010000C 各 bit：
+#     bit0=wdog_A bit1=wdog_B bit2=wdog_C  （某隻=1 → 該看門狗逾時，亦即沒被餵到歸零）
+#     bit3=maj2of3  → 「至少兩隻」逾時（第一關過濾用：單隻誤報不會讓它=1）
+#     bit4=all3     → 「三隻全」逾時 = Linux 把全部餵狗都停了 = Linux 死
+#                     → 接 pl_ps_irq0 → 第二關 FIQ → 重啟 PS(Linux)
+#
+# PL 實測時脈 ≈ 53.4MHz（非 BD requested 的 100MHz）→ RELOAD 0x09896800 ≈ 3 秒。
+# busybox sleep 僅整數秒，故每秒刷新一次。
+
+CTRL=0xA0100000;  RELOAD=0xA0100004;  KICK=0xA0100008;  STATUS=0xA010000C
+CNTA=0xA0100010;  CNTB=0xA0100014;    CNTC=0xA0100018
+RELOAD_3S=0x09896800     # 160e6 cycles ≈ 3 秒 @53.4MHz(實測)
+PASS=1
+
+cmd() { echo "    \$ $*"; "$@"; }      # 先印出實際下的指令，再執行
+
+# 每秒讀硬體並印出，持續 $1 秒；$2 非空則每秒先用該值餵狗
+monitor() {
+    secs=$1; kick=$2; t=0
+    while [ $t -le $secs ]; do
+        [ -n "$kick" ] && devmem $KICK w $kick >/dev/null
+        a=$(devmem $CNTA); b=$(devmem $CNTB); c=$(devmem $CNTC); s=$(devmem $STATUS)
+        echo "    t=${t}s  A=$a B=$b C=$c | STATUS=$s  wdog_A=$((($s>>0)&1)) wdog_B=$((($s>>1)&1)) wdog_C=$((($s>>2)&1))  maj2of3=$((($s>>3)&1)) all3=$((($s>>4)&1))"
+        t=$((t+1)); sleep 1
+    done
+}
+
+verdict() {   # $1=期望(STATUS 低 5 bit 十進位)  $2=說明
+    m=$(( $(devmem $STATUS) & 0x1f ))
+    if [ "$m" = "$1" ]; then echo "    ✓ $2"
+    else echo "    ✗ $2（實得 STATUS&0x1F=$m，期望 $1）"; PASS=0; fi
+}
+
+start()  { cmd devmem $CTRL w 0x0; cmd devmem $RELOAD w $RELOAD_3S; cmd devmem $KICK w 0x7; cmd devmem $CTRL w 0x1; }
+qstart() { devmem $CTRL w 0x0 >/dev/null; devmem $RELOAD w $RELOAD_3S >/dev/null; devmem $KICK w 0x7 >/dev/null; devmem $CTRL w 0x1 >/dev/null; }
+
+# 單獨餓死一隻：$1=被餓的(A/B/C) $2=KICK(餵其餘兩隻) $3=期望STATUS十進位
+filter_one() {
+    qstart
+    echo "  ── 單獨餓死 wdog_$1（其餘兩隻照餵，KICK=$2）──"
+    monitor 5 $2
+    verdict $3 "只有 wdog_$1=1，maj2of3=0、all3=0 → 單隻誤報被 2-of-3 過濾"
+}
+
+echo "=================================================================="
+echo " 第一關 PL TMR Watchdog + Majority Voter — 即時硬體展示"
+echo " （全程 devmem 直讀 PL 暫存器，每秒印出計數值；數字在動＝真實硬體）"
+echo "------------------------------------------------------------------"
+echo " 名詞： wdog_A/B/C=1 → 該看門狗逾時(沒被餵到歸零)"
+echo "        maj2of3=1   → 至少兩隻逾時(第一關過濾用：單隻誤報不會讓它=1)"
+echo "        all3=1      → 三隻全逾時 = Linux 死 → pl_ps_irq0 → 第二關重啟 PS"
+echo "=================================================================="
+
+# ── 測試 1：健康 ──────────────────────────────────────────────────
+echo ""
+echo "[1/3] 測試 1：餵全部三隻 → 系統健康（無人逾時）"
+start
+echo "  每秒『餵全部』(KICK=0x7) 後讀硬體（三隻一直被餵回滿）："
+monitor 5 0x7
+verdict 0 "三隻持續被餵 → 無 timeout（STATUS=0x00）"
+
+# ── 測試 2：任一隻單獨被餓死都應被過濾（測 A/B/C 三種）─────────────
+echo ""
+echo "[2/3] 測試 2：任一隻看門狗單獨逾時(被 SEU 打壞誤報) → 都應被第一關過濾"
+filter_one A 0x6 1     # 餓 A，餵 B,C → wdog_A=1，STATUS=0x01
+filter_one B 0x5 2     # 餓 B，餵 A,C → wdog_B=1，STATUS=0x02
+filter_one C 0x3 4     # 餓 C，餵 A,B → wdog_C=1，STATUS=0x04
+
+# ── 測試 3：三隻全餓死 → 觸發第二關 ───────────────────────────────
+echo ""
+echo "[3/3] 測試 3：完全不餵(等同 Linux 死) → 三隻全逾時 → 觸發第二關"
+start
+echo "  完全不餵、每秒讀硬體（三隻一起掉到 0、all3 翻 1）："
+monitor 7 ""
+verdict 31 "三隻全逾時 → all3=1（接 pl_ps_irq0；FIQ→重啟 PS 待 Phase 4）（STATUS=0x1F）"
+
+cmd devmem $CTRL w 0x0    # 收尾：停掉，避免 all3 一直拉著 pl_ps_irq0
+echo ""
+echo "=================================================================="
+if [ "$PASS" = "1" ]; then echo " 結果：全部通過 ✓   第一關過濾(三隻對稱)正確、第二關觸發條件正確"
+else echo " 結果：有測試未通過 ✗   請看上面即時數值"; fi
+echo "=================================================================="
